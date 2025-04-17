@@ -2,7 +2,7 @@
 
 import type React from 'react'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Card, CardContent } from '@/components/ui/card'
@@ -83,7 +83,7 @@ export function PhotoEditor() {
 	const isMobile = useMobile()
 
 	// Convert dimensions to mm for internal calculations
-	const getDimensionsInMm = () => {
+	const getDimensionsInMm = useCallback(() => {
 		let widthMm = templateWidth
 		let heightMm = templateHeight
 		let minFaceMm = minFaceHeight
@@ -107,7 +107,188 @@ export function PhotoEditor() {
 			minFaceMm,
 			maxFaceMm,
 		}
+	}, [templateWidth, templateHeight, minFaceHeight, maxFaceHeight, units])
+
+	// Helper function to draw an oval
+	const drawOval = (
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		width: number,
+		height: number
+	) => {
+		const radiusX = width / 2
+		const radiusY = height / 2
+
+		ctx.beginPath()
+		ctx.ellipse(x, y, radiusX, radiusY, 0, 0, 2 * Math.PI)
+		ctx.stroke()
 	}
+
+	// Function to draw the template guides
+	const drawTemplateGuides = useCallback(
+		(ctx: CanvasRenderingContext2D) => {
+			const { width, height, scale } = dimensions
+			const { minFaceMm, maxFaceMm } = getDimensionsInMm()
+
+			// Center point of the canvas
+			const centerX = width / 2
+			const centerY = height / 2
+
+			// Calculate oval dimensions
+			const minFaceHeightPx = minFaceMm * MM_TO_INCH * PX_PER_INCH * scale
+			const maxFaceHeightPx = maxFaceMm * MM_TO_INCH * PX_PER_INCH * scale
+			const ovalWidth = minFaceHeightPx * 0.75 // Approximate width-to-height ratio for face
+
+			// Draw the min and max ovals
+			ctx.strokeStyle = '#cccccc'
+			ctx.lineWidth = 1
+			ctx.setLineDash([5, 5])
+
+			// Min face oval
+			drawOval(ctx, centerX, centerY, ovalWidth, minFaceHeightPx)
+
+			// Max face oval
+			ctx.strokeStyle = '#999999'
+			drawOval(
+				ctx,
+				centerX,
+				centerY,
+				ovalWidth * (maxFaceHeightPx / minFaceHeightPx),
+				maxFaceHeightPx
+			)
+
+			// Draw the shoulder guide lines
+			ctx.beginPath()
+			const shoulderY = centerY + minFaceHeightPx / 2
+			ctx.moveTo(centerX - ovalWidth / 2, shoulderY)
+			ctx.lineTo(centerX - ovalWidth, shoulderY + ovalWidth / 2)
+			ctx.moveTo(centerX + ovalWidth / 2, shoulderY)
+			ctx.lineTo(centerX + ovalWidth, shoulderY + ovalWidth / 2)
+			ctx.stroke()
+
+			// Reset line dash
+			ctx.setLineDash([])
+
+			// Draw the main oval guide
+			ctx.strokeStyle = '#000000'
+			ctx.lineWidth = 2
+			drawOval(
+				ctx,
+				centerX,
+				centerY,
+				ovalWidth * 1.1,
+				(minFaceHeightPx + maxFaceHeightPx) / 2
+			)
+
+			// Add measurement labels
+			ctx.fillStyle = '#000000'
+			ctx.font = '10px Arial'
+			ctx.textAlign = 'center'
+
+			// Width label
+			ctx.fillText(`${templateWidth.toFixed(1)}${units}`, centerX, height - 5)
+
+			// Height label
+			ctx.save()
+			ctx.translate(width - 5, centerY)
+			ctx.rotate(Math.PI / 2)
+			ctx.fillText(`${templateHeight.toFixed(1)}${units}`, 0, 0)
+			ctx.restore()
+
+			// Face height labels
+			ctx.fillText(
+				`Min: ${minFaceHeight.toFixed(1)}${units}`,
+				centerX,
+				centerY - minFaceHeightPx / 2 - 5
+			)
+			ctx.fillText(
+				`Max: ${maxFaceHeight.toFixed(1)}${units}`,
+				centerX,
+				centerY - maxFaceHeightPx / 2 - 5
+			)
+		},
+		[
+			dimensions,
+			getDimensionsInMm,
+			minFaceHeight,
+			maxFaceHeight,
+			templateWidth,
+			templateHeight,
+			units,
+		]
+	)
+
+	// Update the preview canvas (without guidelines)
+	const updatePreviewCanvas = useCallback(() => {
+		if (!previewCanvasRef.current || dimensions.width === 0 || !image) return
+
+		const canvas = previewCanvasRef.current
+		const ctx = canvas.getContext('2d')
+		if (!ctx) return
+
+		// Set canvas dimensions
+		canvas.width = dimensions.width
+		canvas.height = dimensions.height
+
+		// Clear canvas
+		ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+		// Draw background
+		ctx.fillStyle = '#ffffff'
+		ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+		// Draw the image
+		const imgWidth = image.width * zoom
+		const imgHeight = image.height * zoom
+
+		ctx.save()
+		ctx.translate(position.x, position.y)
+		ctx.drawImage(image, -imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight)
+		ctx.restore()
+	}, [dimensions.width, dimensions.height, image, zoom, position.x, position.y])
+
+	// Update the high-resolution canvas for download
+	const updateHighResCanvas = useCallback(() => {
+		if (!highResCanvasRef.current || dimensions.width === 0 || !image) return
+
+		const canvas = highResCanvasRef.current
+		const ctx = canvas.getContext('2d')
+		if (!ctx) return
+
+		const { widthMm, heightMm } = getDimensionsInMm()
+
+		// Calculate high-resolution dimensions
+		const highResWidth = Math.round(
+			widthMm * MM_TO_INCH * PX_PER_INCH * RESOLUTION_MULTIPLIER
+		)
+		const highResHeight = Math.round(
+			heightMm * MM_TO_INCH * PX_PER_INCH * RESOLUTION_MULTIPLIER
+		)
+
+		// Set canvas dimensions
+		canvas.width = highResWidth
+		canvas.height = highResHeight
+
+		// Clear canvas
+		ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+		// Draw background
+		ctx.fillStyle = '#ffffff'
+		ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+		// Calculate scale factor between display and high-res
+		const scaleFactor = highResWidth / dimensions.width
+
+		// Draw the image at high resolution
+		const imgWidth = image.width * zoom * scaleFactor
+		const imgHeight = image.height * zoom * scaleFactor
+
+		ctx.save()
+		ctx.translate(position.x * scaleFactor, position.y * scaleFactor)
+		ctx.drawImage(image, -imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight)
+		ctx.restore()
+	}, [dimensions.width, getDimensionsInMm, image, zoom, position.x, position.y])
 
 	// Convert from mm to the current unit
 	const convertFromMm = (valueMm: number): number => {
@@ -205,7 +386,7 @@ export function PhotoEditor() {
 		return () => {
 			window.removeEventListener('resize', calculateDimensions)
 		}
-	}, [isMobile, templateWidth, templateHeight, units])
+	}, [isMobile, templateWidth, templateHeight, units, getDimensionsInMm])
 
 	// Draw the canvas whenever relevant state changes
 	useEffect(() => {
@@ -245,177 +426,18 @@ export function PhotoEditor() {
 
 		// Update the high-resolution canvas
 		updateHighResCanvas()
-	}, [image, zoom, position, dimensions, minFaceHeight, maxFaceHeight, units])
-
-	// Function to draw the template guides
-	const drawTemplateGuides = (ctx: CanvasRenderingContext2D) => {
-		const { width, height, scale } = dimensions
-		const { minFaceMm, maxFaceMm } = getDimensionsInMm()
-
-		// Center point of the canvas
-		const centerX = width / 2
-		const centerY = height / 2
-
-		// Calculate oval dimensions
-		const minFaceHeightPx = minFaceMm * MM_TO_INCH * PX_PER_INCH * scale
-		const maxFaceHeightPx = maxFaceMm * MM_TO_INCH * PX_PER_INCH * scale
-		const ovalWidth = minFaceHeightPx * 0.75 // Approximate width-to-height ratio for face
-
-		// Draw the min and max ovals
-		ctx.strokeStyle = '#cccccc'
-		ctx.lineWidth = 1
-		ctx.setLineDash([5, 5])
-
-		// Min face oval
-		drawOval(ctx, centerX, centerY, ovalWidth, minFaceHeightPx)
-
-		// Max face oval
-		ctx.strokeStyle = '#999999'
-		drawOval(
-			ctx,
-			centerX,
-			centerY,
-			ovalWidth * (maxFaceHeightPx / minFaceHeightPx),
-			maxFaceHeightPx
-		)
-
-		// Draw the shoulder guide lines
-		ctx.beginPath()
-		const shoulderY = centerY + minFaceHeightPx / 2
-		ctx.moveTo(centerX - ovalWidth / 2, shoulderY)
-		ctx.lineTo(centerX - ovalWidth, shoulderY + ovalWidth / 2)
-		ctx.moveTo(centerX + ovalWidth / 2, shoulderY)
-		ctx.lineTo(centerX + ovalWidth, shoulderY + ovalWidth / 2)
-		ctx.stroke()
-
-		// Reset line dash
-		ctx.setLineDash([])
-
-		// Draw the main oval guide
-		ctx.strokeStyle = '#000000'
-		ctx.lineWidth = 2
-		drawOval(
-			ctx,
-			centerX,
-			centerY,
-			ovalWidth * 1.1,
-			(minFaceHeightPx + maxFaceHeightPx) / 2
-		)
-
-		// Add measurement labels
-		ctx.fillStyle = '#000000'
-		ctx.font = '10px Arial'
-		ctx.textAlign = 'center'
-
-		// Width label
-		ctx.fillText(`${templateWidth.toFixed(1)}${units}`, centerX, height - 5)
-
-		// Height label
-		ctx.save()
-		ctx.translate(width - 5, centerY)
-		ctx.rotate(Math.PI / 2)
-		ctx.fillText(`${templateHeight.toFixed(1)}${units}`, 0, 0)
-		ctx.restore()
-
-		// Face height labels
-		ctx.fillText(
-			`Min: ${minFaceHeight.toFixed(1)}${units}`,
-			centerX,
-			centerY - minFaceHeightPx / 2 - 5
-		)
-		ctx.fillText(
-			`Max: ${maxFaceHeight.toFixed(1)}${units}`,
-			centerX,
-			centerY - maxFaceHeightPx / 2 - 5
-		)
-	}
-
-	// Update the preview canvas (without guidelines)
-	const updatePreviewCanvas = () => {
-		if (!previewCanvasRef.current || dimensions.width === 0 || !image) return
-
-		const canvas = previewCanvasRef.current
-		const ctx = canvas.getContext('2d')
-		if (!ctx) return
-
-		// Set canvas dimensions
-		canvas.width = dimensions.width
-		canvas.height = dimensions.height
-
-		// Clear canvas
-		ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-		// Draw background
-		ctx.fillStyle = '#ffffff'
-		ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-		// Draw the image
-		const imgWidth = image.width * zoom
-		const imgHeight = image.height * zoom
-
-		ctx.save()
-		ctx.translate(position.x, position.y)
-		ctx.drawImage(image, -imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight)
-		ctx.restore()
-	}
-
-	// Update the high-resolution canvas for download
-	const updateHighResCanvas = () => {
-		if (!highResCanvasRef.current || dimensions.width === 0 || !image) return
-
-		const canvas = highResCanvasRef.current
-		const ctx = canvas.getContext('2d')
-		if (!ctx) return
-
-		const { widthMm, heightMm } = getDimensionsInMm()
-
-		// Calculate high-resolution dimensions
-		const highResWidth = Math.round(
-			widthMm * MM_TO_INCH * PX_PER_INCH * RESOLUTION_MULTIPLIER
-		)
-		const highResHeight = Math.round(
-			heightMm * MM_TO_INCH * PX_PER_INCH * RESOLUTION_MULTIPLIER
-		)
-
-		// Set canvas dimensions
-		canvas.width = highResWidth
-		canvas.height = highResHeight
-
-		// Clear canvas
-		ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-		// Draw background
-		ctx.fillStyle = '#ffffff'
-		ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-		// Calculate scale factor between display and high-res
-		const scaleFactor = highResWidth / dimensions.width
-
-		// Draw the image at high resolution
-		const imgWidth = image.width * zoom * scaleFactor
-		const imgHeight = image.height * zoom * scaleFactor
-
-		ctx.save()
-		ctx.translate(position.x * scaleFactor, position.y * scaleFactor)
-		ctx.drawImage(image, -imgWidth / 2, -imgHeight / 2, imgWidth, imgHeight)
-		ctx.restore()
-	}
-
-	// Helper function to draw an oval
-	const drawOval = (
-		ctx: CanvasRenderingContext2D,
-		x: number,
-		y: number,
-		width: number,
-		height: number
-	) => {
-		const radiusX = width / 2
-		const radiusY = height / 2
-
-		ctx.beginPath()
-		ctx.ellipse(x, y, radiusX, radiusY, 0, 0, 2 * Math.PI)
-		ctx.stroke()
-	}
+	}, [
+		image,
+		zoom,
+		position,
+		dimensions,
+		minFaceHeight,
+		maxFaceHeight,
+		units,
+		drawTemplateGuides,
+		updatePreviewCanvas,
+		updateHighResCanvas,
+	])
 
 	// Handle file upload
 	const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
