@@ -532,8 +532,8 @@ export function PhotoEditor() {
 		const heightRatio = (dimensions.height * 0.9) / image.height
 		const fitZoom = Math.min(widthRatio, heightRatio)
 
-		// Scale from fitZoom (at slider 0) to 3*fitZoom (at slider 1)
-		const actualZoom = fitZoom * (1 + value[0] * 2)
+		// Scale from fitZoom (at slider 0) to 5*fitZoom (at slider 1)
+		const actualZoom = fitZoom * (1 + value[0] * 4)
 		setZoom(actualZoom)
 	}
 
@@ -545,7 +545,7 @@ export function PhotoEditor() {
 		const fitZoom = Math.min(widthRatio, heightRatio)
 
 		// Convert actual zoom back to slider value
-		return Math.max(0, Math.min(1, (actualZoom / fitZoom - 1) / 2))
+		return Math.max(0, Math.min(1, (actualZoom / fitZoom - 1) / 4))
 	}
 
 	// Handle download
