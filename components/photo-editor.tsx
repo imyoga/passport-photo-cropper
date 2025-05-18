@@ -456,7 +456,7 @@ export function PhotoEditor() {
 				const heightRatio = (dimensions.height * 0.9) / img.height
 				const initialZoom = Math.min(widthRatio, heightRatio)
 
-				// Set zoom (with a minimum value to prevent extreme zoom out)
+				// Set zoom to fit the frame initially
 				setZoom(initialZoom)
 
 				// Center the image
@@ -526,15 +526,26 @@ export function PhotoEditor() {
 
 	// Handle zoom
 	const handleZoomChange = (value: number[]) => {
-		// Use a non-linear scale to make zoom changes less sensitive
-		// This maps slider value 0-2 to actual zoom 0.1-5
-		const actualZoom = 0.1 + Math.pow(value[0], 2) * 2.45
+		// Get the fit-to-frame zoom level for reference
+		if (!image) return
+		const widthRatio = (dimensions.width * 0.9) / image.width
+		const heightRatio = (dimensions.height * 0.9) / image.height
+		const fitZoom = Math.min(widthRatio, heightRatio)
+
+		// Scale from fitZoom (at slider 0) to 3*fitZoom (at slider 1)
+		const actualZoom = fitZoom * (1 + value[0] * 2)
 		setZoom(actualZoom)
 	}
 
 	// Get slider value from actual zoom
 	const getSliderValueFromZoom = (actualZoom: number) => {
-		return Math.sqrt((actualZoom - 0.1) / 2.45)
+		if (!image) return 0
+		const widthRatio = (dimensions.width * 0.9) / image.width
+		const heightRatio = (dimensions.height * 0.9) / image.height
+		const fitZoom = Math.min(widthRatio, heightRatio)
+
+		// Convert actual zoom back to slider value
+		return Math.max(0, Math.min(1, (actualZoom / fitZoom - 1) / 2))
 	}
 
 	// Handle download
@@ -688,7 +699,7 @@ export function PhotoEditor() {
 							<Slider
 								value={[getSliderValueFromZoom(zoom)]}
 								min={0}
-								max={2}
+								max={1}
 								step={0.01}
 								onValueChange={handleZoomChange}
 							/>
